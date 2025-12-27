@@ -18,6 +18,23 @@ app.use(cors({
   credentials: true
 }));
 
+// Request Logging Middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Request received`);
+  
+  if (Object.keys(req.body).length > 0) {
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+  }
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+  });
+
+  next();
+});
+
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -278,29 +295,7 @@ app.get('/api/assets', async (req, res) => {
 });
 
 // ------------------------------
-// Sample route to add a new asset
-// ------------------------------
-app.post('/assets', async (req, res) => {
-  const { asset_code, asset_name, location, category, manufacturer, model, serial_number, install_date, status } = req.body;
-
-  try {
-    const result = await sql`
-      INSERT INTO public.assets_master
-      (asset_code, asset_name, location, category, manufacturer, model, serial_number, install_date, status)
-      VALUES
-      (${asset_code}, ${asset_name}, ${location}, ${category}, ${manufacturer}, ${model}, ${serial_number}, ${install_date}, ${status})
-      RETURNING *;
-    `;
-    res.json(result[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-// ------------------------------
-// ------------------------------
-// GET /api/breakdowns?date=YYYY-MM-DD or /api/breakdowns
+// route to fetch all assets
 // ------------------------------
 app.get('/api/breakdowns', async (req, res) => {
   const { date } = req.query; // date in 'YYYY-MM-DD' format
@@ -309,16 +304,18 @@ app.get('/api/breakdowns', async (req, res) => {
     let query;
     if (date) {
       query = await sql`
-        SELECT *
-        FROM public.breakdown_logs
-        WHERE DATE(created_at) = ${date}
-        ORDER BY created_at DESC
+        SELECT b.*, a.asset_name 
+        FROM public.breakdown_logs b
+        LEFT JOIN public.assets_master a ON b.asset_id = a.id
+        WHERE DATE(b.created_at) = ${date}
+        ORDER BY b.created_at DESC
       `;
     } else {
       query = await sql`
-        SELECT *
-        FROM public.breakdown_logs
-        ORDER BY created_at DESC
+        SELECT b.*, a.asset_name
+        FROM public.breakdown_logs b
+        LEFT JOIN public.assets_master a ON b.asset_id = a.id
+        ORDER BY b.created_at DESC
       `;
     }
 
@@ -328,7 +325,322 @@ app.get('/api/breakdowns', async (req, res) => {
     res.status(500).json({ error: 'Database error fetching breakdowns' });
   }
 });
+
+// ------------------------------
+// GET /api/breakdowns/:id - Get single breakdown
+// ------------------------------
+app.get('/api/breakdowns/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const query = await sql`
+      SELECT b.*, a.asset_name, a.location, a.model, a.serial_number, a.asset_code
+      FROM public.breakdown_logs b
+      LEFT JOIN public.assets_master a ON b.asset_id = a.id
+      WHERE b.id = ${id}
+    `;
+    
+    if (!query.length) return res.status(404).json({ error: 'Breakdown log not found' });
+    res.json(query[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error fetching breakdown' });
+  }
+});
+
+// ------------------------------
+// PUT /api/breakdowns/:id - Update breakdown
+// ------------------------------
+app.put('/api/breakdowns/:id', async (req, res) => {
+  const { id } = req.params;
+  const { 
+    description, reported_by, acknowledged_by, root_cause, action_taken, 
+    started_at, ended_at, status, parts_replaced, work_performed, faults_found, technician
+  } = req.body;
+
+  try {
+    const result = await sql`
+      UPDATE public.breakdown_logs
+      SET
+        description = COALESCE(${description}, description),
+        reported_by = COALESCE(${reported_by}, reported_by),
+        acknowledged_by = COALESCE(${acknowledged_by}, acknowledged_by),
+        root_cause = COALESCE(${root_cause}, root_cause),
+        action_taken = COALESCE(${action_taken}, action_taken),
+        started_at = COALESCE(${started_at}, started_at),
+        ended_at = COALESCE(${ended_at}, ended_at),
+        status = COALESCE(${status}, status),
+        updated_at = now()
+      WHERE id = ${id}
+      RETURNING *;
+    `;
+
+    if (!result.length) return res.status(404).json({ error: 'Breakdown log not found' });
+    res.json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error updating breakdown' });
+  }
+});
+
+// ------------------------------
+// POST /api/breakdowns - Create new breakdown
+// ------------------------------
+app.post('/api/breakdowns', async (req, res) => {
+  const { 
+    asset_id, description, reported_by, status = 'OPEN',
+    bu_name = null, production_opening_time = null, entry_date = null, entry_time = null,
+    equipment_type = null, root_cause = null, action_taken = null, note = null
+  } = req.body;
+  
+  console.log('Breakdown POST values:', {
+    asset_id, description, reported_by, status,
+    bu_name, production_opening_time, entry_date, entry_time,
+    equipment_type, root_cause, action_taken, note
+  });
+
+  try {
+    const result = await sql`
+      INSERT INTO public.breakdown_logs (
+        asset_id, description, reported_by, status,
+        bu_name, production_opening_time, entry_date, entry_time,
+        equipment_type, root_cause, action_taken, note
+      )
+      VALUES (
+        ${asset_id}, ${description}, ${reported_by}, ${status},
+        ${bu_name}, ${production_opening_time}, ${entry_date}, ${entry_time},
+        ${equipment_type}, ${root_cause}, ${action_taken}, ${note}
+      )
+      RETURNING *
+    `;
+    res.status(201).json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error creating breakdown' });
+  }
+});
+
+// ------------------------------
+// PUT /api/breakdowns/:id - Update breakdown
+// ------------------------------
+app.put('/api/breakdowns/:id', async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  
+  // Filter out fields that shouldn't be updated directly or map them if needed
+  // For simplicity, we'll construct the update query dynamically
+  // but safely using postgres.js helper if possible, or manual construction
+  
+  // Safe whitelist of columns
+  const allowedColumns = [
+    'description', 'root_cause', 'action_taken', 'status', 'ended_at', 'acknowledged_by',
+    'bu_name', 'production_opening_time', 'entry_date', 'entry_time', 'equipment_type', 'note'
+  ];
+  const updateData = {};
+  
+  allowedColumns.forEach(col => {
+    if (updates[col] !== undefined) {
+      updateData[col] = updates[col];
+    }
+  });
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  try {
+    const result = await sql`
+      UPDATE public.breakdown_logs
+      SET ${sql(updateData)}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    
+    if (result.length === 0) {
+      return res.status(404).json({ error: 'Breakdown not found' });
+    }
+    
+    res.json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error updating breakdown' });
+  }
+});
+
+// ------------------------------
+// PM Endpoints
+// ------------------------------
+
+// GET all PM schedules
+app.get('/api/pm', async (req, res) => {
+  try {
+    const pms = await sql`
+      SELECT pm.*, a.asset_name 
+      FROM public.pm_schedule pm
+      LEFT JOIN public.assets_master a ON pm.asset_id = a.id
+      ORDER BY pm.due_date ASC
+    `;
+    res.json(pms);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error fetching PM schedules' });
+  }
+});
+
+// POST create PM schedule
+app.post('/api/pm', async (req, res) => {
+  const { asset_id, title, frequency, due_date, checklist, status, last_completed_at } = req.body;
+  try {
+    const result = await sql`
+      INSERT INTO public.pm_schedule (asset_id, title, frequency, due_date, checklist, status, last_completed_at)
+      VALUES (${asset_id}, ${title}, ${frequency}, ${due_date}, ${checklist}, ${status}, ${last_completed_at})
+      RETURNING *
+    `;
+    res.status(201).json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error creating PM schedule' });
+  }
+});
+
+// PUT update PM schedule
+app.put('/api/pm/:id', async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  
+  const allowedColumns = ['title', 'frequency', 'due_date', 'checklist', 'status', 'last_completed_at'];
+  const updateData = {};
+  
+  allowedColumns.forEach(col => {
+    if (updates[col] !== undefined) {
+      updateData[col] = updates[col];
+    }
+  });
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  try {
+    const result = await sql`
+      UPDATE public.pm_schedule
+      SET ${sql(updateData)}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    if (result.length === 0) return res.status(404).json({ error: 'PM schedule not found' });
+    res.json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error updating PM schedule' });
+  }
+});
+
+// ------------------------------
+// Spares Endpoints
+// ------------------------------
+
+// GET all spares
+app.get('/api/spares', async (req, res) => {
+  try {
+    const spares = await sql`SELECT * FROM public.spare_parts_inventory ORDER BY part_name`;
+    res.json(spares);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error fetching spares' });
+  }
+});
+
+// POST create spare
+app.post('/api/spares', async (req, res) => {
+  const { part_code, part_name, uom, stock_on_hand, reorder_level, location } = req.body;
+  try {
+    const result = await sql`
+      INSERT INTO public.spare_parts_inventory (part_code, part_name, uom, stock_on_hand, reorder_level, location)
+      VALUES (${part_code}, ${part_name}, ${uom}, ${stock_on_hand}, ${reorder_level}, ${location})
+      RETURNING *
+    `;
+    res.status(201).json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error creating spare' });
+  }
+});
+
+// PUT update spare
+app.put('/api/spares/:id', async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  
+  const allowedColumns = ['part_name', 'uom', 'stock_on_hand', 'reorder_level', 'location'];
+  const updateData = {};
+  
+  allowedColumns.forEach(col => {
+    if (updates[col] !== undefined) {
+      updateData[col] = updates[col];
+    }
+  });
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  try {
+    const result = await sql`
+      UPDATE public.spare_parts_inventory
+      SET ${sql(updateData)}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    if (result.length === 0) return res.status(404).json({ error: 'Spare not found' });
+    res.json(result[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error updating spare' });
+  }
+});
 //check api from here 
+// ------------------------------
+// DASHBOARD STATS API
+// ------------------------------
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const [
+      assetCount,
+      pmTotal,
+      pmDueToday,
+      sparesCount,
+      openBreakdowns
+    ] = await Promise.all([
+      sql`SELECT COUNT(*) FROM public.assets_master`,
+      sql`SELECT COUNT(*) FROM public.pm_schedule`,
+      sql`SELECT COUNT(*) FROM public.pm_schedule WHERE due_date = CURRENT_DATE`,
+      sql`SELECT COUNT(*) FROM public.spare_parts_inventory`,
+      sql`SELECT COUNT(*) FROM public.breakdown_logs WHERE status = 'OPEN'`
+    ]);
+
+    res.json({
+      assets: {
+        total: parseInt(assetCount[0].count),
+        subtitle: 'Total Assets'
+      },
+      pm: {
+        total: parseInt(pmTotal[0].count),
+        dueToday: parseInt(pmDueToday[0].count)
+      },
+      spares: {
+        total: parseInt(sparesCount[0].count),
+        subtitle: 'Items in Stock'
+      },
+      breakdowns: {
+        open: parseInt(openBreakdowns[0].count)
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching dashboard stats:', err);
+    res.status(500).json({ error: 'Database error fetching dashboard stats' });
+  }
+});
+
 // ------------------------------
 // 📊 ASSET COUNTS API - Must be before /api/assets/:id to avoid route conflict
 // ------------------------------
