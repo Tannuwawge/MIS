@@ -1,0 +1,7 @@
+asset_code,asset_name,machine_no,location,category,manufacturer,model,serial_number,install_date,status
+A001,Conveyor Belt,M001,Plant A - Line 1,Machine,Siemens,CB-2000,SN123456,2024-01-15,ACTIVE
+A002,Air Compressor,M002,Utility Room,Utilities,Atlas Copco,GA-75,SN789012,2023-06-20,UNDER_AMC
+A003,Injection Molding Machine,M003,Plant B - Line 2,Machine,Haitian,MA-1200,SN345678,2022-11-10,ACTIVE
+A004,Cooling Tower,M004,Roof Top,Auxillaries,SPX,CT-500,SN901234,2023-03-05,INACTIVE
+A005,CNC Machine,M005,Workshop,Machine,Fanuc,CNC-3000,SN567890,2024-05-12,ACTIVE
+

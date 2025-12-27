@@ -1,0 +1,14 @@
+{
+  "name": "mis-project",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start:frontend": "cd mis-pwa && npm run dev",
+    "start:backend": "cd server && npm run dev",
+    "start": "echo \"Starting backend and frontend separately. Run 'npm run start:backend' in one terminal and 'npm run start:frontend' in another.\""
+  },
+  "dependencies": {
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
+  }
+}

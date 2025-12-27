@@ -1,0 +1,32 @@
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const SUPABASE_URL = process.env.DATABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+// Debug: avoid printing secrets
+console.debug('supabaseClient: SUPABASE_URL is', SUPABASE_URL ? 'SET' : 'UNSET');
+console.debug('supabaseClient: SUPABASE_KEY is', SUPABASE_KEY ? 'SET' : 'UNSET');
+
+let supabase;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  // Export a lightweight stub so the server can run in development without crashing.
+  // Routes should handle empty results when using the stub.
+  console.warn('Warning: SUPABASE_URL or SUPABASE_KEY not set. Using stub supabase client.');
+
+  supabase = {
+    from: (/* table */) => ({
+      select: async (/* cols */) => ({ data: [], error: null }),
+      insert: async (/* rows */) => ({ data: [], error: null }),
+      update: async (/* changes */) => ({ data: [], error: null }),
+      delete: async () => ({ data: [], error: null }),
+    }),
+  };
+} else {
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+}
+
+export default supabase;
