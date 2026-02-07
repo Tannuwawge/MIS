@@ -486,6 +486,24 @@ app.get('/api/pm', async (req, res) => {
   }
 });
 
+// GET single PM schedule
+app.get('/api/pm/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pm = await sql`
+      SELECT pm.*, a.asset_name, a.asset_code, a.location, a.model
+      FROM public.pm_schedule pm
+      LEFT JOIN public.assets_master a ON pm.asset_id = a.id
+      WHERE pm.id = ${id}
+    `;
+    if (!pm.length) return res.status(404).json({ error: 'PM schedule not found' });
+    res.json(pm[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error fetching PM schedule' });
+  }
+});
+
 // POST create PM schedule
 app.post('/api/pm', async (req, res) => {
   const { asset_id, title, frequency, due_date, checklist, status, last_completed_at } = req.body;
@@ -552,11 +570,11 @@ app.get('/api/spares', async (req, res) => {
 
 // POST create spare
 app.post('/api/spares', async (req, res) => {
-  const { part_code, part_name, uom, stock_on_hand, reorder_level, location } = req.body;
+  const { part_code, part_name, uom, stock_on_hand, reorder_level, location, category, min_level, unit_cost, supplier } = req.body;
   try {
     const result = await sql`
-      INSERT INTO public.spare_parts_inventory (part_code, part_name, uom, stock_on_hand, reorder_level, location)
-      VALUES (${part_code}, ${part_name}, ${uom}, ${stock_on_hand}, ${reorder_level}, ${location})
+      INSERT INTO public.spare_parts_inventory (part_code, part_name, uom, stock_on_hand, reorder_level, location, category, min_level, unit_cost, supplier)
+      VALUES (${part_code}, ${part_name}, ${uom}, ${stock_on_hand}, ${reorder_level}, ${location}, ${category}, ${min_level}, ${unit_cost}, ${supplier})
       RETURNING *
     `;
     res.status(201).json(result[0]);
@@ -571,7 +589,7 @@ app.put('/api/spares/:id', async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
   
-  const allowedColumns = ['part_name', 'uom', 'stock_on_hand', 'reorder_level', 'location'];
+  const allowedColumns = ['part_name', 'uom', 'stock_on_hand', 'reorder_level', 'location', 'category', 'min_level', 'unit_cost', 'supplier'];
   const updateData = {};
   
   allowedColumns.forEach(col => {
@@ -1601,6 +1619,52 @@ process.on('SIGTERM', async () => {
   }
   
   process.exit(0);
+});
+
+// ======================================================
+// 👤 PROFILE STATS API
+// ======================================================
+app.get('/api/profile/stats/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 1. Get User Details
+    const userResult = await sql`SELECT * FROM public.profiles WHERE id = ${id}`;
+    const user = userResult[0] || {};
+
+    // 2. Get Reported Breakdowns (as a proxy for activity)
+    let reportedBreakdowns = 0;
+    try {
+        const breakdownCount = await sql`SELECT COUNT(*) FROM public.breakdown_logs WHERE reported_by = ${id}`;
+        reportedBreakdowns = parseInt(breakdownCount[0].count);
+    } catch (e) {
+        console.warn("Could not fetch breakdown stats for user", id);
+    }
+
+    // 3. Get Completed PM Tasks
+    let completedTasks = 0;
+    try {
+        const entryCount = await sql`SELECT COUNT(*) FROM public.daily_entry_engineer WHERE created_by = ${id}`;
+        completedTasks = parseInt(entryCount[0].count);
+    } catch (e) {
+         // Fallback
+    }
+
+    // 4. Assigned Assets (Mocked as 0 since we don't have assignment column)
+    const assignedAssets = 0;
+
+    res.json({
+      role: user.role || 'User',
+      department: 'Engineering', 
+      assigned_assets: assignedAssets,
+      completed_pm: completedTasks,
+      reported_issues: reportedBreakdowns,
+      last_login: user.updated_at || new Date().toISOString()
+    });
+
+  } catch (err) {
+    console.error('Error fetching profile stats:', err);
+    res.status(500).json({ error: 'Database error fetching profile stats' });
+  }
 });
 
 // ------------------------------
