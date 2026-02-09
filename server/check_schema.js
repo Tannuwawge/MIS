@@ -2,7 +2,7 @@ import sql from './src/db.js';
 
 async function checkSchema() {
   try {
-    const tables = ['profiles'];
+    const tables = ['assets_master'];
     
     for (const table of tables) {
       console.log(`\nTable: ${table}`);

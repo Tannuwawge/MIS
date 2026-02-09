@@ -491,7 +491,7 @@ app.get('/api/pm/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const pm = await sql`
-      SELECT pm.*, a.asset_name, a.asset_code, a.location, a.model
+      SELECT pm.*, a.asset_name, a.asset_code, a.asset_location as location, a.model_number as model
       FROM public.pm_schedule pm
       LEFT JOIN public.assets_master a ON pm.asset_id = a.id
       WHERE pm.id = ${id}
@@ -710,18 +710,70 @@ app.get('/api/assets/:id', async (req, res) => {
 // CREATE new asset
 // ------------------------------
 app.post('/api/assets', async (req, res) => {
-  const { asset_code, asset_name, location, category, manufacturer, model, serial_number, install_date, status } = req.body;
+  const { 
+    asset_code, 
+    asset_name, 
+    asset_location, 
+    location,
+    bu_name,
+    asset_type, 
+    category,
+    manufacturer, 
+    model_number, 
+    model,
+    model_name,
+    serial_number, 
+    install_date, 
+    asset_status,
+    status,
+    warranty_expiry,
+    qr_code
+  } = req.body;
+
+  // Map input fields to DB columns
+  const db_location = asset_location || location;
+  const db_type = asset_type || category;
+  const db_model_number = model_number || model;
+  const db_status = asset_status || status;
 
   // Validate status
-  const allowedStatus = ['ACTIVE','UNDER_AMC','INACTIVE','DISPOSED'];
-  if (!allowedStatus.includes(status)) return res.status(400).json({ error: 'Invalid status value' });
+  const allowedStatus = ['active', 'under_amc', 'inactive', 'disposed', 'ACTIVE', 'UNDER_AMC', 'INACTIVE', 'DISPOSED'];
+  if (db_status && !allowedStatus.includes(db_status)) return res.status(400).json({ error: 'Invalid status value' });
 
   try {
     const result = await sql`
       INSERT INTO public.assets_master
-      (asset_code, asset_name, location, category, manufacturer, model, serial_number, install_date, status)
+      (
+        asset_code, 
+        asset_name, 
+        asset_location, 
+        bu_name,
+        asset_type, 
+        manufacturer, 
+        model_number, 
+        model_name,
+        serial_number, 
+        install_date, 
+        asset_status,
+        warranty_expiry,
+        qr_code
+      )
       VALUES
-      (${asset_code}, ${asset_name}, ${location}, ${category}, ${manufacturer}, ${model}, ${serial_number}, ${install_date}, ${status})
+      (
+        ${asset_code}, 
+        ${asset_name}, 
+        ${db_location}, 
+        ${bu_name},
+        ${db_type}, 
+        ${manufacturer}, 
+        ${db_model_number}, 
+        ${model_name},
+        ${serial_number}, 
+        ${install_date}, 
+        ${db_status},
+        ${warranty_expiry},
+        ${qr_code}
+      )
       RETURNING *;
     `;
     res.status(201).json(result[0]);
@@ -1035,10 +1087,34 @@ function validateAssetData(data) {
 // ------------------------------
 app.put('/api/assets/:id', async (req, res) => {
   const { id } = req.params;
-  const { asset_code, asset_name, location, category, manufacturer, model, serial_number, install_date, status } = req.body;
+  const { 
+    asset_code, 
+    asset_name, 
+    asset_location, 
+    location,
+    bu_name,
+    asset_type, 
+    category,
+    manufacturer, 
+    model_number, 
+    model,
+    model_name,
+    serial_number, 
+    install_date, 
+    asset_status,
+    status,
+    warranty_expiry,
+    qr_code
+  } = req.body;
 
-  const allowedStatus = ['ACTIVE','UNDER_AMC','INACTIVE','DISPOSED'];
-  if (status && !allowedStatus.includes(status)) return res.status(400).json({ error: 'Invalid status value' });
+  // Map input fields to DB columns
+  const db_location = asset_location !== undefined ? asset_location : location;
+  const db_type = asset_type !== undefined ? asset_type : category;
+  const db_model_number = model_number !== undefined ? model_number : model;
+  const db_status = asset_status !== undefined ? asset_status : status;
+
+  const allowedStatus = ['active', 'under_amc', 'inactive', 'disposed', 'ACTIVE', 'UNDER_AMC', 'INACTIVE', 'DISPOSED'];
+  if (db_status && !allowedStatus.includes(db_status)) return res.status(400).json({ error: 'Invalid status value' });
 
   try {
     const updated = await sql`
@@ -1046,13 +1122,17 @@ app.put('/api/assets/:id', async (req, res) => {
       SET
         asset_code = COALESCE(${asset_code}, asset_code),
         asset_name = COALESCE(${asset_name}, asset_name),
-        location = COALESCE(${location}, location),
-        category = COALESCE(${category}, category),
+        asset_location = COALESCE(${db_location}, asset_location),
+        bu_name = COALESCE(${bu_name}, bu_name),
+        asset_type = COALESCE(${db_type}, asset_type),
         manufacturer = COALESCE(${manufacturer}, manufacturer),
-        model = COALESCE(${model}, model),
+        model_number = COALESCE(${db_model_number}, model_number),
+        model_name = COALESCE(${model_name}, model_name),
         serial_number = COALESCE(${serial_number}, serial_number),
         install_date = COALESCE(${install_date}, install_date),
-        status = COALESCE(${status}, status),
+        asset_status = COALESCE(${db_status}, asset_status),
+        warranty_expiry = COALESCE(${warranty_expiry}, warranty_expiry),
+        qr_code = COALESCE(${qr_code}, qr_code),
         updated_at = now()
       WHERE id = ${id}
       RETURNING *;

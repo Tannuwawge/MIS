@@ -1,3 +1,6 @@
+<<<<<<< HEAD
+# MIS
+=======
 # MIS Project 1
 
 This repository contains a full-stack Maintenance Information System (MIS) project with a React frontend (PWA) and a Node.js backend.
@@ -208,3 +211,4 @@ npm test
 This project is for educational and internal use.
 
 
+>>>>>>> 6d3bb39 (Add full project with mock server)
